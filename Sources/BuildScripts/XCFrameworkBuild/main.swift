@@ -706,6 +706,8 @@ private class BuildFFMPEG: BaseBuild {
         // OmniPlay (GRCSAC): every filter mpv can use through --vf/--af (equalizers, loudnorm, etc.).
         "--enable-filters",
         "--disable-coreimage", "--disable-appkit", "--disable-lzma",
+        // drawtext wants hb-ft.h, which mpvkit's HarfBuzz release doesn't ship; mpv never uses it.
+        "--disable-filter=drawtext",
     ]
 
 }
