@@ -1,0 +1,89 @@
+name: OmniPlay engine release
+
+# Builds the macOS LGPL engine (FFmpeg with every decoder, demuxer and filter, plus libmpv),
+# publishes the xcframeworks as a GitHub release, and points Package.swift at them.
+# Run it from the Actions tab or: gh workflow run omniplay-release.yml -f version=<tag>
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. 1.1.0-n9.0.2-omniplay.1'
+        required: true
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: macos-15
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse an existing tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "Tag $VERSION already exists" >&2
+            exit 1
+          fi
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Install build tools
+        run: |
+          brew install autoconf automake libtool meson ninja nasm glslang pkg-config wget
+          meson --version
+
+      - name: Build (macOS, LGPL)
+        run: make build platform=macos version=${{ inputs.version }}
+
+      - name: Keep the build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            dist/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Point Package.swift at this release
+        run: python3 -I scripts/omniplay-package.py pin "${{ inputs.version }}" dist/release
+
+      - name: Commit, tag and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "chore: OmniPlay engine $VERSION"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
+          cat > /tmp/notes.md <<EOF
+          GRCSAC build of MPVKit for OmniPlay, macOS only (arm64 + x86_64), LGPL v3.
+
+          - mpv and FFmpeg versions: see \`Sources/BuildScripts/XCFrameworkBuild/main.swift\` at this tag.
+          - FFmpeg differs from upstream MPVKit: every decoder, demuxer and filter is enabled (no allow-lists), plus the PNG and MJPEG encoders for screenshots and bzip2. No \`--enable-gpl\`.
+          - Source: this repository at this tag, plus the upstream FFmpeg and mpv tags it names.
+          EOF
+
+          gh release create "$VERSION" \
+            --title "OmniPlay engine $VERSION" \
+            --notes-file /tmp/notes.md \
+            dist/release/Libmpv.xcframework.zip \
+            dist/release/Libav*.xcframework.zip \
+            dist/release/Libsw*.xcframework.zip \
+            dist/release/Libmpv.xcframework.checksum.txt \
+            dist/release/Libav*.xcframework.checksum.txt \
+            dist/release/Libsw*.xcframework.checksum.txt

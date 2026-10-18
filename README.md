@@ -1,3 +1,24 @@
+# MPVKit, GRCSAC build for OmniPlay
+
+This is GRCSAC's fork of [mpvkit/MPVKit](https://github.com/mpvkit/MPVKit), used by the OmniPlay media player for macOS. The `omniplay` branch is the one that matters. It differs from upstream in four ways:
+
+- FFmpeg is built with **every decoder, demuxer and filter** instead of upstream's allow-lists, so older and rarer formats (DivX 3 / MS-MPEG4, Theora, Cinepak, Indeo, DNxHD, WavPack, ATRAC, Musepack, MXF, NUT, Bink and many more) play. It also includes the PNG and MJPEG encoders (mpv screenshots) and bzip2.
+- Only the **LGPL** build is published. There is no `--enable-gpl` and no `MPVKit-GPL` product.
+- Only **macOS** (arm64 + x86_64) is built.
+- Releases (`1.1.0-n9.0.2-omniplay.N` and later) are built by `.github/workflows/omniplay-release.yml` on GitHub's macOS runners. Only FFmpeg and libmpv are rebuilt. The other libraries come from mpvkit's own dependency releases, unchanged.
+
+Licence: LGPL v3, the same as upstream. The source for every binary release is this repository at the release tag, plus the FFmpeg and mpv tags named in `Sources/BuildScripts/XCFrameworkBuild/main.swift`.
+
+Use it from Swift Package Manager:
+
+```swift
+.package(url: "https://github.com/GRCSAC/MPVKit", exact: "1.1.0-n9.0.2-omniplay.1")
+```
+
+The upstream README follows.
+
+---
+
 # MPVKit
 
 [![mpv](https://img.shields.io/badge/mpv-v0.41.0-blue.svg)](https://github.com/mpv-player/mpv)
