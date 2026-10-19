@@ -1,0 +1,32 @@
+From: GRCSAC <omniplay@grcsac.com>
+Subject: [PATCH] vo: moltenvk: follow the layer's drawable size
+
+The MoltenVK context read the CAMetalLayer size only on reconfig, so a
+window resize, full screen or split change kept drawing at the old size,
+and a video that started before the layer had a size stayed at 1x1 (a black
+picture). Poll the layer on VOCTRL_CHECK_EVENTS, as the other contexts do,
+and resize the swapchain when it changes.
+
+---
+diff --git a/video/out/vulkan/context_moltenvk.m b/video/out/vulkan/context_moltenvk.m
+index 445b907..2929662 100644
+--- a/video/out/vulkan/context_moltenvk.m
++++ b/video/out/vulkan/context_moltenvk.m
+@@ -83,6 +83,17 @@ static bool moltenvk_reconfig(struct ra_ctx *ctx)
+ 
+ static int moltenvk_control(struct ra_ctx *ctx, int *events, int request, void *arg)
+ {
++    struct priv *p = ctx->priv;
++    if (request == VOCTRL_CHECK_EVENTS) {
++        // The app sets drawableSize on the main thread; mpv only has to notice it.
++        CGSize s = p->layer.drawableSize;
++        int w = (int)s.width, h = (int)s.height;
++        if (w > 1 && h > 1 && (w != ctx->vo->dwidth || h != ctx->vo->dheight)) {
++            if (ra_vk_ctx_resize(ctx, w, h))
++                *events |= VO_EVENT_RESIZE;
++        }
++        return VO_TRUE;
++    }
+     return VO_NOTIMPL;
+ }
+ 
