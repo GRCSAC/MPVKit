@@ -1,0 +1,265 @@
+From: OmniPlay
+Subject: [PATCH] ao_coreaudio: no callbacks into a freed AO, one lifecycle step at a time
+
+Backports upstream c5d391adb and af067b5ea (an AO whose init failed left
+its device listener registered). Keeps a list of AOs with a listener so a
+device change arriving during uninit is dropped instead of crashing in
+hotplug_cb, and serialises init/start/reset/stop/uninit across every AO
+in the process, since several players opening or resuming at once have
+crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
+---
+--- a/audio/out/ao_coreaudio.c
++++ b/audio/out/ao_coreaudio.c
+@@ -28,12 +28,20 @@
+ #include "ao_coreaudio_properties.h"
+ #include "ao_coreaudio_utils.h"
+ #include "osdep/mac/compat.h"
++#include "osdep/threads.h"
+ 
+ // The timeout for stopping the audio unit after being reset. This allows the
+ // device to sleep after playback paused. The duration is chosen to match the
+ // behavior of AVFoundation.
+ #define IDLE_TIME 7 * NSEC_PER_SEC
+ 
++// Several players in one process (OmniPlay's Quad View) would otherwise open,
++// start, reset and close their audio units at the same moment from different
++// threads, which has crashed inside CoreAudio/CoreMedia. One lock makes those
++// steps take turns across every AO in the process; the render callback never
++// takes it.
++static mp_static_mutex ca_lifecycle_lock = MP_STATIC_MUTEX_INITIALIZER;
++
+ struct priv {
+     // This must be put in the front
+     struct coreaudio_cb_sem sem;
+@@ -141,6 +149,7 @@
+ static void reinit_latency(struct ao *ao);
+ static bool register_hotplug_cb(struct ao *ao);
+ static void unregister_hotplug_cb(struct ao *ao);
++static void uninit_unlocked(struct ao *ao);
+ 
+ static bool reinit_device(struct ao *ao) {
+     struct priv *p = ao->priv;
+@@ -154,7 +163,7 @@
+     return false;
+ }
+ 
+-static int init(struct ao *ao)
++static int init_unlocked(struct ao *ao)
+ {
+     struct priv *p = ao->priv;
+ 
+@@ -167,9 +176,6 @@
+     if (!reinit_device(ao))
+         goto coreaudio_error;
+ 
+-    if (!register_hotplug_cb(ao))
+-        goto coreaudio_error;
+-
+     if (p->change_physical_format)
+         init_physical_format(ao);
+ 
+@@ -187,6 +193,9 @@
+     if (!r)
+         goto coreaudio_error;
+ 
++    if (!register_hotplug_cb(ao))
++        goto coreaudio_error;
++
+     reinit_latency(ao);
+     ao->device_buffer = av_rescale(p->hw_latency_ns, ao->samplerate, 1000000000) * 2;
+ 
+@@ -196,9 +205,18 @@
+     return CONTROL_OK;
+ 
+ coreaudio_error:
++    uninit_unlocked(ao);
+     return CONTROL_ERROR;
+ }
+ 
++static int init(struct ao *ao)
++{
++    mp_mutex_lock(&ca_lifecycle_lock);
++    int r = init_unlocked(ao);
++    mp_mutex_unlock(&ca_lifecycle_lock);
++    return r;
++}
++
+ static void init_physical_format(struct ao *ao)
+ {
+     struct priv *p = ao->priv;
+@@ -361,7 +379,9 @@
+ static void stop(struct ao *ao)
+ {
+     struct priv *p = ao->priv;
++    mp_mutex_lock(&ca_lifecycle_lock);
+     OSStatus err = AudioOutputUnitStop(p->audio_unit);
++    mp_mutex_unlock(&ca_lifecycle_lock);
+     CHECK_CA_WARN("can't stop audio unit");
+ }
+ 
+@@ -394,7 +414,9 @@
+ {
+     struct ao *ao = (struct ao *)_ao;
+     struct priv *p = ao->priv;
++    mp_mutex_lock(&ca_lifecycle_lock);
+     OSStatus err = AudioUnitReset(p->audio_unit, kAudioUnitScope_Global, 0);
++    mp_mutex_unlock(&ca_lifecycle_lock);
+     CHECK_CA_WARN("can't reset audio unit");
+ 
+     // Until the audio unit is stopped the macOS daemon coreaudiod continues to
+@@ -421,7 +443,9 @@
+     if (p->idle_work)
+         dispatch_block_cancel(p->idle_work);
+ 
++    mp_mutex_lock(&ca_lifecycle_lock);
+     OSStatus err = AudioOutputUnitStart(p->audio_unit);
++    mp_mutex_unlock(&ca_lifecycle_lock);
+     CHECK_CA_WARN("can't start audio unit");
+ }
+ 
+@@ -432,40 +456,102 @@
+     dispatch_sync_f(p->queue, ao, &_start);
+ }
+ 
+-static void uninit(struct ao *ao)
++static void uninit_unlocked(struct ao *ao)
+ {
+     struct priv *p = ao->priv;
+ 
+-    dispatch_sync(p->queue, ^{
+-        cancel_and_release_idle_work(p);
+-    });
+-    dispatch_release(p->queue);
++    // First, so a device change can't reach this AO while its unit goes away.
++    unregister_hotplug_cb(ao);
+ 
+-    AudioOutputUnitStop(p->audio_unit);
+-    AudioUnitUninitialize(p->audio_unit);
+-    AudioComponentInstanceDispose(p->audio_unit);
++    if (p->queue) {
++        dispatch_sync(p->queue, ^{
++            cancel_and_release_idle_work(p);
++        });
++        dispatch_release(p->queue);
++    }
+ 
++    if (p->audio_unit) {
++        AudioOutputUnitStop(p->audio_unit);
++        AudioUnitUninitialize(p->audio_unit);
++        AudioComponentInstanceDispose(p->audio_unit);
++    }
++
+     if (p->original_asbd.mFormatID) {
+         OSStatus err = CA_SET(p->original_asbd_stream,
+                               kAudioStreamPropertyPhysicalFormat,
+                               &p->original_asbd);
+         CHECK_CA_WARN("could not restore physical stream format");
+     }
++}
+ 
+-    unregister_hotplug_cb(ao);
++static void uninit(struct ao *ao)
++{
++    struct priv *p = ao->priv;
++    // Drain the idle queue before taking the lock: its pending stop() takes
++    // the lock too, and waiting for it while holding the lock would deadlock.
++    if (p->queue) {
++        dispatch_sync(p->queue, ^{
++            cancel_and_release_idle_work(p);
++        });
++        dispatch_release(p->queue);
++        p->queue = NULL;
++    }
++    mp_mutex_lock(&ca_lifecycle_lock);
++    uninit_unlocked(ao);
++    mp_mutex_unlock(&ca_lifecycle_lock);
+ }
+ 
++// CoreAudio delivers listener calls on its own queue and doesn't wait for one
++// already on its way when the listener is removed, so a device change around
++// an AO's uninit could call back into a freed AO. Every AO with a registered
++// listener is kept here, and the callback only touches AOs still in the list.
++static mp_static_mutex hotplug_lock = MP_STATIC_MUTEX_INITIALIZER;
++#define MAX_HOTPLUG_AOS 64
++static struct ao *hotplug_aos[MAX_HOTPLUG_AOS];
++
++static bool hotplug_track(struct ao *ao)
++{
++    bool ok = false;
++    mp_mutex_lock(&hotplug_lock);
++    for (int i = 0; i < MAX_HOTPLUG_AOS; i++) {
++        if (!hotplug_aos[i]) {
++            hotplug_aos[i] = ao;
++            ok = true;
++            break;
++        }
++    }
++    mp_mutex_unlock(&hotplug_lock);
++    return ok;
++}
++
++static void hotplug_untrack(struct ao *ao)
++{
++    mp_mutex_lock(&hotplug_lock);
++    for (int i = 0; i < MAX_HOTPLUG_AOS; i++) {
++        if (hotplug_aos[i] == ao)
++            hotplug_aos[i] = NULL;
++    }
++    mp_mutex_unlock(&hotplug_lock);
++}
++
+ static OSStatus hotplug_cb(AudioObjectID id, UInt32 naddr,
+                            const AudioObjectPropertyAddress addr[],
+                            void *ctx)
+ {
+     struct ao *ao = ctx;
+-    struct priv *p = ao->priv;
+-    MP_VERBOSE(ao, "Handling potential hotplug event...\n");
+-    reinit_device(ao);
+-    if (p->audio_unit)
+-        reinit_latency(ao);
+-    ao_hotplug_event(ao);
++    mp_mutex_lock(&hotplug_lock);
++    bool live = false;
++    for (int i = 0; i < MAX_HOTPLUG_AOS; i++)
++        live |= hotplug_aos[i] == ao;
++    if (live) {
++        struct priv *p = ao->priv;
++        MP_VERBOSE(ao, "Handling potential hotplug event...\n");
++        reinit_device(ao);
++        if (p->audio_unit)
++            reinit_latency(ao);
++        ao_hotplug_event(ao);
++    }
++    mp_mutex_unlock(&hotplug_lock);
+     return noErr;
+ }
+ 
+@@ -497,6 +583,12 @@
+     if (p->hotplug_cb_registration_times++)
+         return true;
+ 
++    if (!hotplug_track(ao)) {
++        MP_ERR(ao, "too many audio outputs to follow device changes\n");
++        p->hotplug_cb_registration_times--;
++        return false;
++    }
++
+     OSStatus err = noErr;
+     for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
+         AudioObjectPropertyAddress addr = {
+@@ -524,9 +616,13 @@
+ {
+     struct priv *p = ao->priv;
+ 
+-    if (--p->hotplug_cb_registration_times)
++    if (p->hotplug_cb_registration_times <= 0 ||
++        --p->hotplug_cb_registration_times)
+         return;
+ 
++    // Waits for a callback that is already running on this AO.
++    hotplug_untrack(ao);
++
+     OSStatus err = noErr;
+     for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
+         AudioObjectPropertyAddress addr = {
