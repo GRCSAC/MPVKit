@@ -1,12 +1,15 @@
 From: OmniPlay
-Subject: [PATCH] ao_coreaudio: no callbacks into a freed AO, one lifecycle step at a time
+Subject: [PATCH] ao_coreaudio: macOS 27 fixes, no callbacks into a freed AO, one lifecycle step at a time
 
-Backports upstream c5d391adb and af067b5ea (an AO whose init failed left
-its device listener registered). Keeps a list of AOs with a listener so a
-device change arriving during uninit is dropped instead of crashing in
-hotplug_cb, and serialises init/start/reset/stop/uninit across every AO
-in the process, since several players opening or resuming at once have
-crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
+On macOS 27 setting kAudioOutputUnitProperty_ChannelMap fails with -50 for
+most layouts (mpv #18384), which dropped files to ao_avfoundation; it is
+now a warning, as before mpv 0.41. Backports upstream c5d391adb and
+af067b5ea (an AO whose init failed left its device listener registered,
+mpv #18274). Keeps a list of AOs with a listener so a device change
+arriving during uninit is dropped instead of crashing in hotplug_cb, and
+serialises init/start/reset/stop/uninit across every AO in the process,
+since several players opening or resuming at once have crashed inside
+CoreAudio/CoreMedia (OmniPlay crashes of 2026-10-25, D21).
 ---
 --- a/audio/out/ao_coreaudio.c
 +++ b/audio/out/ao_coreaudio.c
@@ -87,7 +90,21 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
  static void init_physical_format(struct ao *ao)
  {
      struct priv *p = ao->priv;
-@@ -361,7 +379,9 @@
+@@ -325,8 +343,11 @@
+                                kAudioOutputUnitProperty_ChannelMap,
+                                kAudioUnitScope_Global, 0, layout, layout_size);
+ 
+-    CHECK_CA_ERROR_L(coreaudio_error_audiounit,
+-                     "unable to set the input channel layout on the audio unit");
++    // macOS 27 refuses this for most layouts (-50, mpv #18384). Failing here
++    // dropped every such file to ao_avfoundation, which has crashed with
++    // several players; play with the unit's default mapping instead, as mpv
++    // did before 0.41.
++    CHECK_CA_WARN("unable to set the input channel layout on the audio unit");
+ 
+     AURenderCallbackStruct render_cb = (AURenderCallbackStruct) {
+         .inputProc       = render_cb_lpcm,
+@@ -361,7 +382,9 @@
  static void stop(struct ao *ao)
  {
      struct priv *p = ao->priv;
@@ -97,7 +114,7 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
      CHECK_CA_WARN("can't stop audio unit");
  }
  
-@@ -394,7 +414,9 @@
+@@ -394,7 +417,9 @@
  {
      struct ao *ao = (struct ao *)_ao;
      struct priv *p = ao->priv;
@@ -107,7 +124,7 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
      CHECK_CA_WARN("can't reset audio unit");
  
      // Until the audio unit is stopped the macOS daemon coreaudiod continues to
-@@ -421,7 +443,9 @@
+@@ -421,7 +446,9 @@
      if (p->idle_work)
          dispatch_block_cancel(p->idle_work);
  
@@ -117,7 +134,7 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
      CHECK_CA_WARN("can't start audio unit");
  }
  
-@@ -432,40 +456,102 @@
+@@ -432,40 +459,102 @@
      dispatch_sync_f(p->queue, ao, &_start);
  }
  
@@ -235,7 +252,7 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
      return noErr;
  }
  
-@@ -497,6 +583,12 @@
+@@ -497,6 +586,12 @@
      if (p->hotplug_cb_registration_times++)
          return true;
  
@@ -248,7 +265,7 @@ crashed inside CoreAudio (OmniPlay crashes of 2026-10-25, D21).
      OSStatus err = noErr;
      for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
          AudioObjectPropertyAddress addr = {
-@@ -524,9 +616,13 @@
+@@ -524,9 +619,13 @@
  {
      struct priv *p = ao->priv;
  
