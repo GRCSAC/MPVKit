@@ -165,38 +165,38 @@ let package = Package(
 
         .binaryTarget(
             name: "Libavcodec",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libavcodec.xcframework.zip",
-            checksum: "7409ed397c6fa1a696fba6783998793f4b0317eb95568523f29a637e26d7fbf5"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libavcodec.xcframework.zip",
+            checksum: "0c5b82c19088bfa667cdec9b7c0e2ead9bd0923fed6d6b8659ae816c0d2be256"
         ),
         .binaryTarget(
             name: "Libavdevice",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libavdevice.xcframework.zip",
-            checksum: "4a58898020e8f7369a75f7d4fc6b9177d6fde47cf339d4e978ae4b5a8b862dcd"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libavdevice.xcframework.zip",
+            checksum: "35586192d0713dc1c36d6cf7ff6dfd5fc07ef6b0764b4aa672fb69b831c1fce9"
         ),
         .binaryTarget(
             name: "Libavformat",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libavformat.xcframework.zip",
-            checksum: "2e4a6f3328c15bce232f37a9e49700807f47876ef2b1173f468e3300c072de37"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libavformat.xcframework.zip",
+            checksum: "f9e7f567465d79c091f72d34aabcecea981792e656eda5e7c4f613aff11f2cc4"
         ),
         .binaryTarget(
             name: "Libavfilter",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libavfilter.xcframework.zip",
-            checksum: "4ee3904995f6893d5eb17e887b41d7b1b79f80d665b8899c777f45b90bfa8e65"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libavfilter.xcframework.zip",
+            checksum: "851f0a27e85ee671bb11a12d8424d9b8748e16539a6e66b063a2b6a86a020c9c"
         ),
         .binaryTarget(
             name: "Libavutil",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libavutil.xcframework.zip",
-            checksum: "7f0296d4d3b4aeda4e0c7420787826104ceb7ae87b4a2665ca682ff07bcf9a56"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libavutil.xcframework.zip",
+            checksum: "e75e426958949615176a045f6a255ac17c3ee1efd5435421f96bdced669b61c0"
         ),
         .binaryTarget(
             name: "Libswresample",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libswresample.xcframework.zip",
-            checksum: "fdae7f3d5a62a4b5f9de62da86dc3ed1f4696b4cf70c8b6db6418ced46bb8ff3"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libswresample.xcframework.zip",
+            checksum: "a4d1b8b3f3f4a5d6ac728fcd18c5de8dae7cedceffedad54c3f7163f69fb05e5"
         ),
         .binaryTarget(
             name: "Libswscale",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libswscale.xcframework.zip",
-            checksum: "743677c4555d04b3fa2cc40930fcc2c0bb483e308ea7e72643d67d20ddf34a1e"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libswscale.xcframework.zip",
+            checksum: "d7ab090e4a7a89e8737e8bf6241b743a8f69a29972b6fa6a4c03c2ecfac54724"
         ),
 
         .binaryTarget(
@@ -213,8 +213,8 @@ let package = Package(
 
         .binaryTarget(
             name: "Libmpv",
-            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.5/Libmpv.xcframework.zip",
-            checksum: "25241e1efe1cef8346ff621f32e8532cf8b5f36f0f998068c1729b348439a7b1"
+            url: "https://github.com/GRCSAC/MPVKit/releases/download/1.1.0-n9.0.2-omniplay.6/Libmpv.xcframework.zip",
+            checksum: "2a8fa5ac2d99140a7d8243a172c6fa24c7352605aeba73c518d3ae335a423518"
         ),
         //AUTO_GENERATE_TARGETS_END//
     ]
